@@ -1,0 +1,7 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27
+python-dotenv>=1.0
+numpy>=1.26
+opencv-python-headless>=4.10
+camoufox>=0.5.5
