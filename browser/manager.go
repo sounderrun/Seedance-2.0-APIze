@@ -5,12 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 const (
-	DreaminaURL     = "https://dreamina.capcut.com/ai-tool/generate"
-	SessionDir      = ".dreamina-session" // store cookies/localStorage to avoid logging in again
+	DreaminaURL = "https://dreamina.capcut.com/ai-tool/generate"
+	SessionDir  = ".dreamina-session" // store cookies/localStorage to avoid logging in again
 )
 
 type Manager struct {
@@ -64,6 +64,11 @@ func New(headless bool) (*Manager, error) {
 // NewPage opens a new tab
 func (m *Manager) NewPage() (playwright.Page, error) {
 	return m.context.NewPage()
+}
+
+// AddCookies injects cookies into the persistent context (saved on Close).
+func (m *Manager) AddCookies(cookies []playwright.OptionalCookie) error {
+	return m.context.AddCookies(cookies)
 }
 
 // Close performs cleanup

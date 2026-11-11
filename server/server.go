@@ -42,14 +42,15 @@ func (s *Server) Run() error {
 
 // POST /v1/videos/generations
 // multipart/form-data fields:
-//   prompt       string   (required)
-//   model        string   (seedance-2.0 | seedance-2.0-fast, default: seedance-2.0-fast)
-//   duration     int      (4-15, default: 5)
-//   aspect_ratio string   (16:9 | 9:16 | 1:1 | 4:3 | 3:4 | 21:9, default: 16:9)
-//   mode         string   (omni | start-end, default: omni)
-//   references   file(s)  (omni only, max 9)
-//   start_frame  file     (start-end only)
-//   end_frame    file     (start-end only)
+//
+//	prompt       string   (required)
+//	model        string   (seedance-2.0 | seedance-2.0-fast | seedance-2.0-mini, default: seedance-2.0-fast)
+//	duration     int      (4-15, default: 5)
+//	aspect_ratio string   (16:9 | 9:16 | 1:1 | 4:3 | 3:4 | 21:9, default: 16:9)
+//	mode         string   (omni | start-end, default: omni)
+//	references   file(s)  (omni only, max 9)
+//	start_frame  file     (start-end only)
+//	end_frame    file     (start-end only)
 func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -82,8 +83,8 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		opts.Duration = dur
 	}
 
-	if opts.Model != "" && opts.Model != "seedance-2.0" && opts.Model != "seedance-2.0-fast" {
-		jsonError(w, "model must be 'seedance-2.0' or 'seedance-2.0-fast'", http.StatusBadRequest)
+	if opts.Model != "" && opts.Model != "seedance-2.0" && opts.Model != "seedance-2.0-fast" && opts.Model != "seedance-2.0-mini" {
+		jsonError(w, "model must be 'seedance-2.0', 'seedance-2.0-fast' or 'seedance-2.0-mini'", http.StatusBadRequest)
 		return
 	}
 

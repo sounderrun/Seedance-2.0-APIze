@@ -32,7 +32,7 @@ type Job struct {
 type Queue struct {
 	mu      sync.RWMutex
 	jobs    map[string]*Job
-	ch      chan string    // job IDs waiting to be processed
+	ch      chan string // job IDs waiting to be processed
 	manager *browser.Manager
 	workers int
 }

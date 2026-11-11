@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/mxschmitt/playwright-go"
 	"github.com/trannghiach/Seedance-2.0-APIze/browser"
 	"github.com/trannghiach/Seedance-2.0-APIze/queue"
 	"github.com/trannghiach/Seedance-2.0-APIze/scraper"
@@ -100,6 +102,72 @@ func main() {
 		if err := srv.Run(); err != nil {
 			fatal("server:", err)
 		}
+
+	// ── INJECT ─────────────────────────────────────────────────────────
+	// Headless cookie injection: seeds .dreamina-session from cookies_cache.json
+	// (or --file) so no visible browser / manual login is needed.
+	case "inject":
+		cookieFile := getFlag("--file", "cookies_cache.json")
+		raw, err := os.ReadFile(cookieFile)
+		if err != nil {
+			fatal("read cookies:", err)
+		}
+		var cached []map[string]interface{}
+		if err := json.Unmarshal(raw, &cached); err != nil {
+			fatal("parse cookies:", err)
+		}
+		var cookies []playwright.OptionalCookie
+		for _, c := range cached {
+			name, _ := c["name"].(string)
+			val, _ := c["value"].(string)
+			if name == "" {
+				continue
+			}
+			oc := playwright.OptionalCookie{Name: name, Value: val}
+			if d, ok := c["domain"].(string); ok && d != "" {
+				oc.Domain = &d
+			}
+			if p, ok := c["path"].(string); ok && p != "" {
+				oc.Path = &p
+			}
+			if e, ok := c["expires"].(float64); ok && e > 0 {
+				oc.Expires = &e
+			}
+			if h, ok := c["httpOnly"].(bool); ok {
+				oc.HttpOnly = &h
+			}
+			if s, ok := c["secure"].(bool); ok {
+				oc.Secure = &s
+			}
+			if ss, ok := c["sameSite"].(string); ok && ss != "" {
+				attr := playwright.SameSiteAttribute(ss)
+				oc.SameSite = &attr
+			}
+			cookies = append(cookies, oc)
+		}
+		fmt.Printf("Injecting %d cookies from %s (headless)...\n", len(cookies), cookieFile)
+
+		mgr, err := browser.New(true)
+		if err != nil {
+			fatal("browser:", err)
+		}
+		defer mgr.Close()
+
+		if err := mgr.AddCookies(cookies); err != nil {
+			fatal("inject:", err)
+		}
+		page, err := mgr.NewPage()
+		if err != nil {
+			fatal("page:", err)
+		}
+		page.Goto("https://dreamina.capcut.com/ai-tool/home")
+		time.Sleep(5 * time.Second)
+
+		if !browser.IsLoggedIn(page) {
+			fmt.Println("✗ Injected cookies rejected (redirected to login). Refresh cookies and retry.")
+			os.Exit(1)
+		}
+		fmt.Println("✓ Session valid — cookies persisted to .dreamina-session/")
 
 	// ── TEST ──────────────────────────────────────────────────────────
 	case "test":
@@ -201,8 +269,6 @@ func main() {
 		os.Exit(1)
 	}
 }
-
-
 
 func fatal(msg string, err error) {
 	fmt.Fprintf(os.Stderr, "✗ %s %v\n", msg, err)
