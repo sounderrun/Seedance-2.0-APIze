@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 const (
@@ -66,6 +66,7 @@ func (s *Scraper) Generate(opts GenerateOptions) (*GenerateResult, error) {
 	}
 
 	// 2. Switch to AI Video mode
+	s.dismissOverlays()
 	if err := s.switchToAIVideo(); err != nil {
 		return nil, fmt.Errorf("switch to AI Video: %w", err)
 	}
@@ -85,9 +86,11 @@ func (s *Scraper) Generate(opts GenerateOptions) (*GenerateResult, error) {
 		return nil, fmt.Errorf("select aspect ratio: %w", err)
 	}
 
-	// 6. Select duration
-	if err := s.selectDuration(opts.Duration); err != nil {
-		return nil, fmt.Errorf("select duration: %w", err)
+	// 6. Select duration (Mini has fixed duration — no selector in toolbar)
+	if opts.Model != "seedance-2.0-mini" {
+		if err := s.selectDuration(opts.Duration); err != nil {
+			return nil, fmt.Errorf("select duration: %w", err)
+		}
 	}
 
 	// 7. Upload files
@@ -179,6 +182,28 @@ func (s *Scraper) Generate(opts GenerateOptions) (*GenerateResult, error) {
 
 // ── UI Interaction Helpers ────────────────────────────────────────────────────
 
+// dismissOverlays clicks the first visible cookie/consent button, if any.
+// No overlay is the normal case, so this is best-effort and reports nothing.
+func (s *Scraper) dismissOverlays() {
+	// TikTok cookie banner and generic consent popups overlay the toolbar
+	for _, sel := range []string{
+		"tiktok-cookie-banner button:has-text('Accept')",
+		"tiktok-cookie-banner button:has-text('Reject')",
+		"tiktok-cookie-banner button:has-text('Got it')",
+		"button:has-text('Accept all')",
+		"button:has-text('Reject all')",
+		"[class*='cookie'] button",
+	} {
+		if btn, err := s.page.QuerySelector(sel); err == nil && btn != nil {
+			if vis, verr := btn.IsVisible(); verr == nil && vis {
+				_ = btn.Click()
+				time.Sleep(800 * time.Millisecond)
+				return
+			}
+		}
+	}
+}
+
 func (s *Scraper) switchToAIVideo() error {
 	modeBtn, err := s.page.QuerySelector(".lv-select-view-value")
 	if err != nil || modeBtn == nil {
@@ -191,7 +216,27 @@ func (s *Scraper) switchToAIVideo() error {
 
 	videoOption, err := s.page.QuerySelector("li[role='option']:has-text('AI Video')")
 	if err != nil || videoOption == nil {
-		return fmt.Errorf("AI Video option not found")
+		var labels []string
+		if els, qerr := s.page.QuerySelectorAll("li[role='option']"); qerr == nil {
+			for _, el := range els {
+				if t, terr := el.TextContent(); terr == nil {
+					labels = append(labels, strings.TrimSpace(t))
+				}
+			}
+		}
+		if len(labels) == 0 {
+			if els, qerr := s.page.QuerySelectorAll("div[class*='option'], div[class*='menu-item'], div[class*='dropdown']"); qerr == nil {
+				for _, el := range els {
+					if t, terr := el.TextContent(); terr == nil {
+						if trimmed := strings.TrimSpace(t); trimmed != "" && len(trimmed) < 120 {
+							labels = append(labels, trimmed)
+						}
+					}
+				}
+			}
+		}
+		s.page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String("debug_mode.png")})
+		return fmt.Errorf("AI Video option not found (dropdown shows: %v)", labels)
 	}
 	if err := videoOption.Click(); err != nil {
 		return fmt.Errorf("click AI Video: %w", err)
@@ -214,6 +259,8 @@ func (s *Scraper) selectModel(model string) error {
 	switch model {
 	case "seedance-2.0":
 		optionText = "Dreamina Seedance 2.0"
+	case "seedance-2.0-mini":
+		optionText = "Seedance 2.0 Mini"
 	default: // seedance-2.0-fast
 		optionText = "Dreamina Seedance 2.0 Fast"
 	}
@@ -226,6 +273,12 @@ func (s *Scraper) selectModel(model string) error {
 	for _, opt := range options {
 		text, _ := opt.TextContent()
 		trimmed := strings.TrimSpace(text)
+		if model == "seedance-2.0-mini" {
+			if strings.Contains(trimmed, "Mini") {
+				return opt.Click()
+			}
+			continue
+		}
 		if model == "seedance-2.0" {
 			if strings.Contains(trimmed, "Seedance 2.0") && !strings.Contains(trimmed, "Fast") {
 				return opt.Click()
@@ -303,7 +356,17 @@ func (s *Scraper) selectDuration(duration int) error {
 	// Open duration dropdown
 	durationBtn, err := s.page.QuerySelector(".lv-select-view-value:has-text('4s'), .lv-select-view-value:has-text('5s'), .lv-select-view-value:has-text('6s'), .lv-select-view-value:has-text('7s'), .lv-select-view-value:has-text('8s'), .lv-select-view-value:has-text('9s'), .lv-select-view-value:has-text('10s'), .lv-select-view-value:has-text('11s'), .lv-select-view-value:has-text('12s'), .lv-select-view-value:has-text('13s'), .lv-select-view-value:has-text('14s'), .lv-select-view-value:has-text('15s')")
 	if err != nil || durationBtn == nil {
-		return fmt.Errorf("duration selector not found")
+		// Dump actual toolbar labels + screenshot so we learn the real UI
+		var labels []string
+		if els, qerr := s.page.QuerySelectorAll(".lv-select-view-value"); qerr == nil {
+			for _, el := range els {
+				if t, terr := el.TextContent(); terr == nil {
+					labels = append(labels, strings.TrimSpace(t))
+				}
+			}
+		}
+		s.page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String("debug_duration.png")})
+		return fmt.Errorf("duration selector not found (toolbar shows: %v)", labels)
 	}
 	if err := durationBtn.Click(); err != nil {
 		return fmt.Errorf("click duration selector: %w", err)
@@ -364,9 +427,15 @@ func (s *Scraper) uploadStartEnd(startFrame, endFrame string) error {
 
 func (s *Scraper) waitForProgress() error {
 	appeared := false
+	waits := 0
 
 	for {
+		waits++
 		var activeText string
+		if waits > 200 { // ~10min hard cap whatever the UI shows
+			s.page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String("debug_timeout.png")})
+			return fmt.Errorf("generation timed out after 10min — check debug_timeout.png")
+		}
 		for _, sel := range []string{
 			"text=/\\d+%/",
 			"text=/Accelerating/i",
@@ -388,7 +457,6 @@ func (s *Scraper) waitForProgress() error {
 			fmt.Printf("  %s\r", activeText)
 			appeared = true
 		} else if appeared {
-			// Progress gone — check if video exists
 			lastCard, _ := s.page.QuerySelector("div[class*='video-record']:last-of-type")
 			if lastCard != nil {
 				if video, _ := lastCard.QuerySelector("video"); video == nil {
@@ -400,6 +468,23 @@ func (s *Scraper) waitForProgress() error {
 		} else {
 			if el, _ := s.page.QuerySelector("text=/Face detected/i"); el != nil {
 				return fmt.Errorf("face detected in reference images — Dreamina rejected the request")
+			}
+			if waits > 40 { // ~2min with no progress UI: capture the real blocker
+				s.page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String("debug_stuck.png")})
+				var notes []string
+				if els, qerr := s.page.QuerySelectorAll("div[class*='modal'], div[class*='Modal'], div[class*='dialog'], div[class*='Dialog'], div[class*='popup'], div[class*='Popup'], div[class*='pay'], div[class*='Pay'], div[class*='vip'], div[class*='Vip'], div[class*='VIP']"); qerr == nil {
+					for _, el := range els {
+						if t, terr := el.TextContent(); terr == nil {
+							if trimmed := strings.TrimSpace(t); trimmed != "" {
+								if len(trimmed) > 300 {
+									trimmed = trimmed[:300]
+								}
+								notes = append(notes, trimmed)
+							}
+						}
+					}
+				}
+				return fmt.Errorf("no progress UI after 2min — submit likely blocked (popups: %v) — check debug_stuck.png", notes)
 			}
 			fmt.Print("  waiting for generation to start...\r")
 		}
